@@ -14,6 +14,7 @@ from .unet import ResNetUNet
 from .unet_gray import UNetGray
 from .unet_gray_lsd import UNetGrayLSD
 from .unet_gray_lsd_sdf import UNetGrayLSDSDF
+from .segformer import SegFormerPanel
 from .losses import DiceLoss, BoundaryLoss, CombinedLoss
 
 __all__ = [
@@ -21,7 +22,8 @@ __all__ = [
     'UNetGray',
     'UNetGrayLSD',
     'UNetGrayLSDSDF',
+    'SegFormerPanel',
     'DiceLoss',
     'BoundaryLoss',
-    'CombinedLoss',
+    'CombinedLoss'
 ]
