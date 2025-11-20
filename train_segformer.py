@@ -314,7 +314,14 @@ def main():
     if args.run_name: cfg["RUN_NAME"] = args.run_name
     
     seed_everything(cfg["SEED"])
-    dev = "cuda" if torch.cuda.is_available() else "cpu"
+    
+    # Device selection (CUDA > MPS > CPU)
+    if torch.cuda.is_available():
+        dev = "cuda"
+    elif torch.backends.mps.is_available():
+        dev = "mps"
+    else:
+        dev = "cpu"
     
     print("\n" + "="*60)
     print("SegFormer Training (Gray + LSD + SDF)")
