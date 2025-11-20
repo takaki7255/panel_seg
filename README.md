@@ -9,11 +9,10 @@ panel_seg/
 ├── models/
 │   ├── __init__.py
 │   ├── losses.py                  # 損失関数 (BCE + Dice + Boundary)
-│   ├── unet.py                    # ResNet-UNet (既存)
 │   ├── unet_gray.py              # U-Net (Grayスケール入力)
 │   ├── unet_gray_lsd.py          # U-Net (Gray + LSD入力)
 │   ├── unet_gray_lsd_sdf.py      # U-Net (Gray + LSD + SDF入力)
-│   ├── segformer.py              # SegFormer (MiT-B2/B3) - 実装予定
+│   ├── segformer.py              # SegFormer (MiT-B2/B3)
 │   └── mask2former.py            # Mask2Former + Swin-T - 実装予定
 ├── preprocess_lsd_sdf.py         # LSD/SDF特徴量生成
 ├── train_*.py                     # 各モデルの学習スクリプト
