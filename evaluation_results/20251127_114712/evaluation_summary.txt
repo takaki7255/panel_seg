@@ -1,0 +1,12 @@
+﻿========================================
+Model Evaluation Summary
+Execution Time: 2025/11/27 11:47:12
+========================================
+
+Evaluation Results:
+- Total Models: 12
+- Success: 12
+- Failed: 0
+
+See evaluation_results.csv for details.
+Log files for each model are saved in the same directory.

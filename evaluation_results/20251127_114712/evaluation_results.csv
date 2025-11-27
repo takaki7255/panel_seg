@@ -1,0 +1,13 @@
+﻿Model,TestScript,Status,ExecutionTime,OutputFile
+panel_seg-unetgray-01,test_unet_gray.py,Success,16.112896,evaluation_results/20251127_114712/panel_seg-unetgray-01_evaluation.log
+panel_seg-unetgray-02,test_unet_gray.py,Success,14.4645953,evaluation_results/20251127_114712/panel_seg-unetgray-02_evaluation.log
+panel_seg-unetgray-03,test_unet_gray.py,Success,13.5429238,evaluation_results/20251127_114712/panel_seg-unetgray-03_evaluation.log
+panel_seg-unetgray-04,test_unet_gray.py,Success,14.576281,evaluation_results/20251127_114712/panel_seg-unetgray-04_evaluation.log
+panel_seg-unetgraylsd-01,test_unet_gray_lsd.py,Success,17.4974737,evaluation_results/20251127_114712/panel_seg-unetgraylsd-01_evaluation.log
+panel_seg-unetgraylsd-02,test_unet_gray_lsd.py,Success,15.9397569,evaluation_results/20251127_114712/panel_seg-unetgraylsd-02_evaluation.log
+panel_seg-unetgraylsd-03,test_unet_gray_lsd.py,Success,15.3822789,evaluation_results/20251127_114712/panel_seg-unetgraylsd-03_evaluation.log
+panel_seg-unetgraylsd-04,test_unet_gray_lsd.py,Success,15.5615241,evaluation_results/20251127_114712/panel_seg-unetgraylsd-04_evaluation.log
+panel_seg-unetgraylsdsdf-01,test_unet_gray_lsd_sdf.py,Success,18.1283055,evaluation_results/20251127_114712/panel_seg-unetgraylsdsdf-01_evaluation.log
+panel_seg-unetgraylsdsdf-02,test_unet_gray_lsd_sdf.py,Success,16.4256561,evaluation_results/20251127_114712/panel_seg-unetgraylsdsdf-02_evaluation.log
+panel_seg-unetgraylsdsdf-03,test_unet_gray_lsd_sdf.py,Success,16.4920438,evaluation_results/20251127_114712/panel_seg-unetgraylsdsdf-03_evaluation.log
+panel_seg-unetgraylsdsdf-04,test_unet_gray_lsd_sdf.py,Success,16.4236962,evaluation_results/20251127_114712/panel_seg-unetgraylsdsdf-04_evaluation.log

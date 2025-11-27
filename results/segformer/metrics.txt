@@ -1,0 +1,18 @@
+SegFormer Evaluation Results
+============================================================
+Model: ./panel_models/panel_seg-segformer-mit-b2-01.pt
+Backbone: nvidia/mit-b2
+Dataset: ./frame_dataset/test100_preprocessed
+Split: 
+Num images: 100
+============================================================
+
+Dice:        0.9758 Å} 0.0180
+IoU:         0.9533 Å} 0.0325
+Precision:   0.9651 Å} 0.0326
+Recall:      0.9875 Å} 0.0112
+F1:          0.9758 Å} 0.0180
+Boundary F1: 0.8394 Å} 0.0672
+PR-AUC:      0.9954
+
+Time: 9.20s

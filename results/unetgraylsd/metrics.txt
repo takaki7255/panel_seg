@@ -1,0 +1,18 @@
+============================================================
+UNetGrayLSD Evaluation Results
+============================================================
+Model: C:\Users\ttaka\manga\panel_seg\panel_models\panel_seg-unetgraylsd-04.pt
+Dataset: frame_dataset/test100_preprocessed
+Split: 
+Num images: 100
+============================================================
+
+Dice:          0.9633 ± 0.0527
+IoU:           0.9333 ± 0.0797
+Precision:     0.9444 ± 0.0817
+Recall:        0.9880 ± 0.0112
+F1:            0.9633 ± 0.0527
+Boundary F1:   0.8051 ± 0.0700
+PR-AUC:        0.9805
+
+Time: 6.73s

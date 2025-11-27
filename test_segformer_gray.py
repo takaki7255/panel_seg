@@ -1,14 +1,14 @@
 """
-Test/Evaluation script for SegFormer
+Test/Evaluation script for SegFormerGray (Grayscale-only input)
 
 Usage:
-    python test_segformer.py \
-        --model ./panel_models/panel_seg-segformer-b2-01.pt \
+    python test_segformer_gray.py \
+        --model ./panel_models/panel_seg-segformergray-b2-01.pt \
         --model-name nvidia/mit-b2 \
-        --root ./panel_dataset_processed \
+        --root ./panel_dataset \
         --split test \
         --save-preds \
-        --output ./results/segformer-b2
+        --output ./results/segformergray
 """
 
 import argparse, time, glob
@@ -23,20 +23,35 @@ from sklearn.metrics import precision_recall_curve, auc
 import matplotlib.pyplot as plt
 import cv2
 
-from models.segformer import SegFormerPanel
+from models.segformer_gray import SegFormerGray
 
 # ============================================================================
 # Dataset
 # ============================================================================
-class PanelDatasetLSDSDF(Dataset):
-    def __init__(self, img_dir, mask_dir, lsd_dir, sdf_dir, img_size):
-        self.img_paths = sorted(glob.glob(str(img_dir / "*.jpg"))) + sorted(glob.glob(str(img_dir / "*.png")))
+class PanelDataset(Dataset):
+    """Dataset for grayscale manga panel segmentation"""
+    def __init__(self, img_dir, mask_dir, img_size):
+        self.img_paths = sorted(glob.glob(str(img_dir / "*.jpg"))) + \
+                        sorted(glob.glob(str(img_dir / "*.png")))
         if not self.img_paths:
-            raise FileNotFoundError(f"No images in {img_dir}")
-        self.mask_dir, self.lsd_dir, self.sdf_dir = mask_dir, lsd_dir, sdf_dir
-        resize_size = img_size if isinstance(img_size, tuple) else (img_size, img_size)
-        self.img_tf = transforms.Compose([transforms.Resize(resize_size), transforms.ToTensor()])
-        self.mask_tf = transforms.Compose([transforms.Resize(resize_size, interpolation=Image.NEAREST), transforms.ToTensor()])
+            raise FileNotFoundError(f"No images found in {img_dir}")
+        
+        self.mask_dir = mask_dir
+        
+        if isinstance(img_size, tuple):
+            resize_size = img_size
+        else:
+            resize_size = (img_size, img_size)
+        
+        self.img_tf = transforms.Compose([
+            transforms.Resize(resize_size),
+            transforms.ToTensor(),
+        ])
+        
+        self.mask_tf = transforms.Compose([
+            transforms.Resize(resize_size, interpolation=Image.NEAREST),
+            transforms.ToTensor(),
+        ])
     
     def __len__(self):
         return len(self.img_paths)
@@ -44,12 +59,12 @@ class PanelDatasetLSDSDF(Dataset):
     def __getitem__(self, idx):
         img_p = self.img_paths[idx]
         stem = Path(img_p).stem
-        img_gray = self.img_tf(Image.open(img_p).convert("L"))
-        lsd = self.img_tf(Image.open(self.lsd_dir / f"{stem}_lsd.png").convert("L"))
-        sdf = self.img_tf(Image.open(self.sdf_dir / f"{stem}_sdf.png").convert("L"))
-        img = torch.cat([img_gray, lsd, sdf], dim=0)
-        mask = self.mask_tf(Image.open(self.mask_dir / f"{stem}_mask.png").convert("L"))
+        mask_p = self.mask_dir / f"{stem}_mask.png"
+        
+        img = self.img_tf(Image.open(img_p).convert("L"))
+        mask = self.mask_tf(Image.open(mask_p).convert("L"))
         mask = (mask > 0.5).float()
+        
         return img, mask, stem
 
 # ============================================================================
@@ -163,18 +178,18 @@ def plot_pr_curve(all_probs, all_gts, output_dir):
 # Main
 # ============================================================================
 def parse_args():
-    parser = argparse.ArgumentParser(description='SegFormer Evaluation')
+    parser = argparse.ArgumentParser(description='SegFormerGray Evaluation')
     parser.add_argument('--model', type=str, required=True, help='Path to trained model')
     parser.add_argument('--model-name', type=str, default='nvidia/mit-b2', 
                         help='SegFormer model name (must match training)')
-    parser.add_argument('--root', type=str, required=True, help='Dataset root (preprocessed)')
+    parser.add_argument('--root', type=str, required=True, help='Dataset root')
     parser.add_argument('--split', type=str, default='',
                         help='Dataset split to evaluate (default: empty for flat structure, or test/train/val)')
     parser.add_argument('--batch', type=int, default=4)
     parser.add_argument('--img-size', type=int, nargs=2, default=[512, 512])
     parser.add_argument('--threshold', type=float, default=0.5)
     parser.add_argument('--save-preds', action='store_true')
-    parser.add_argument('--output', type=str, default='./results/segformer')
+    parser.add_argument('--output', type=str, default='./results/segformergray')
     return parser.parse_args()
 
 def main():
@@ -189,7 +204,7 @@ def main():
         device = 'cpu'
     
     print("\n" + "="*60)
-    print("SegFormer Evaluation (Gray + LSD + SDF)")
+    print("SegFormerGray Evaluation (Grayscale only)")
     print("="*60)
     print(f"Model: {args.model}")
     print(f"Backbone: {args.model_name}")
@@ -197,9 +212,8 @@ def main():
     print("="*60 + "\n")
     
     # Load model
-    model = SegFormerPanel(
+    model = SegFormerGray(
         model_name=args.model_name,
-        in_channels=3,
         num_labels=1,
         pretrained=False  # We're loading trained weights
     ).to(device)
@@ -215,15 +229,11 @@ def main():
     if args.split:
         img_dir = root / args.split / 'images'
         mask_dir = root / args.split / 'masks'
-        lsd_dir = root / args.split / 'lsd'
-        sdf_dir = root / args.split / 'sdf'
     else:
         img_dir = root / 'images'
         mask_dir = root / 'masks'
-        lsd_dir = root / 'lsd'
-        sdf_dir = root / 'sdf'
     
-    dataset = PanelDatasetLSDSDF(img_dir, mask_dir, lsd_dir, sdf_dir, img_size)
+    dataset = PanelDataset(img_dir, mask_dir, img_size)
     loader = DataLoader(dataset, batch_size=args.batch, shuffle=False, num_workers=0)
     print(f"Dataset: {len(dataset)} images\n")
     
@@ -251,7 +261,7 @@ def main():
     output_dir.mkdir(parents=True, exist_ok=True)
     
     with open(output_dir / 'metrics.txt', 'w') as f:
-        f.write("SegFormer Evaluation Results\n")
+        f.write("SegFormerGray Evaluation Results\n")
         f.write("="*60 + "\n")
         f.write(f"Model: {args.model}\n")
         f.write(f"Backbone: {args.model_name}\n")

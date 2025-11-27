@@ -1,0 +1,18 @@
+SegFormerGray Evaluation Results
+============================================================
+Model: ./panel_models/panel_seg-segformergray-mit-b2-01.pt
+Backbone: nvidia/mit-b2
+Dataset: ./frame_dataset/test100_preprocessed
+Split: 
+Num images: 100
+============================================================
+
+Dice:        0.9785 Å} 0.0296
+IoU:         0.9593 Å} 0.0473
+Precision:   0.9703 Å} 0.0474
+Recall:      0.9883 Å} 0.0095
+F1:          0.9785 Å} 0.0296
+Boundary F1: 0.7747 Å} 0.0867
+PR-AUC:      0.9949
+
+Time: 6.71s

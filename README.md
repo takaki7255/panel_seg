@@ -14,11 +14,26 @@ panel_seg/
 │   ├── unet_gray_lsd_sdf.py      # U-Net (Gray + LSD + SDF入力)
 │   ├── segformer.py              # SegFormer (MiT-B2/B3)
 │   └── mask2former.py            # Mask2Former + Swin-T - 実装予定
-├── preprocess_lsd_sdf.py         # LSD/SDF特徴量生成
+├── preprocess_lsd_sdf.py         # LSD/SDF特徴量生成（train/val分割あり）
+├── preprocess_lsd_sdf_test.py    # LSD/SDF特徴量生成（テスト用）
 ├── train_*.py                     # 各モデルの学習スクリプト
 ├── test_*.py                      # 各モデルの評価スクリプト
+├── evaluate_all_models.ps1       # 全モデル自動評価スクリプト
+├── evaluate_all_models.bat       # 全モデル自動評価（バッチ版）
+├── EVALUATION_GUIDE.md           # 評価ツール詳細ガイド
 └── README.md
 ```
+
+## 🎯 クイックスタート: モデル評価
+
+学習済みモデルを一括で評価する場合：
+
+```cmd
+# すべてのモデルを自動評価
+evaluate_all_models.bat
+```
+
+詳細は [EVALUATION_GUIDE.md](EVALUATION_GUIDE.md) を参照してください。
 
 ## 🚀 実装済みモデル
 
@@ -150,15 +165,28 @@ panel_seg/
 
 ### LSD/SDF前処理の実行
 
-#### 基本的な使い方
+#### 学習用データセット（train/val分割あり）
 ```bash
 # LSD + SDF を生成（UNetGrayLSDSDF, SegFormer用）
 python preprocess_lsd_sdf.py \
-    --root ./panel_dataset \
-    --output ./panel_dataset_processed \
+    --root ./frame_dataset/1000_dataset \
+    --output ./frame_dataset/1000_preprocessed \
     --lsd-scale 0.8 \
     --sdf-max-dist 50
 ```
+
+#### テストデータセット（train/val分割なし）
+```bash
+# テスト用データセットの前処理
+python preprocess_lsd_sdf_test.py \
+    --root ./frame_dataset/test100_dataset \
+    --output ./frame_dataset/test100_preprocessed \
+    --min-line-length 10
+```
+
+**重要**: 
+- **学習用データセット**（`train/`と`val/`フォルダあり）: `preprocess_lsd_sdf.py`を使用
+- **テストデータセット**（`images/`と`masks/`が直接配置）: `preprocess_lsd_sdf_test.py`を使用
 
 #### 線分長さフィルタリング
 ```bash

@@ -256,7 +256,8 @@ def parse_args():
     
     parser.add_argument('--model', type=str, required=True, help='Path to trained model')
     parser.add_argument('--root', type=str, required=True, help='Dataset root (preprocessed)')
-    parser.add_argument('--split', type=str, default='test', choices=['train', 'val', 'test'])
+    parser.add_argument('--split', type=str, default='',
+                        help='Dataset split to evaluate (default: empty for flat structure, or test/train/val)')
     parser.add_argument('--batch', type=int, default=8)
     parser.add_argument('--img-size', type=int, nargs=2, default=[384, 512])
     parser.add_argument('--base-channels', type=int, default=64)
@@ -294,12 +295,17 @@ def main():
     root = Path(args.root)
     img_size = tuple(args.img_size)
     
-    dataset = PanelDatasetLSD(
-        root / args.split / 'images',
-        root / args.split / 'masks',
-        root / args.split / 'lsd',
-        img_size
-    )
+    # Handle split directory structure
+    if args.split:
+        img_dir = root / args.split / 'images'
+        mask_dir = root / args.split / 'masks'
+        lsd_dir = root / args.split / 'lsd'
+    else:
+        img_dir = root / 'images'
+        mask_dir = root / 'masks'
+        lsd_dir = root / 'lsd'
+    
+    dataset = PanelDatasetLSD(img_dir, mask_dir, lsd_dir, img_size)
     
     loader = DataLoader(dataset, batch_size=args.batch, shuffle=False, num_workers=0)
     print(f"Dataset: {len(dataset)} images\n")

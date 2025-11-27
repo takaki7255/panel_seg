@@ -318,8 +318,8 @@ def parse_args():
                         help='Path to trained model checkpoint')
     parser.add_argument('--root', type=str, required=True,
                         help='Dataset root directory')
-    parser.add_argument('--split', type=str, default='test', choices=['train', 'val', 'test'],
-                        help='Dataset split to evaluate (default: test)')
+    parser.add_argument('--split', type=str, default='',
+                        help='Dataset split to evaluate (default: empty for flat structure, or test/train/val)')
     parser.add_argument('--batch', type=int, default=8,
                         help='Batch size (default: 8)')
     parser.add_argument('--img-size', type=int, nargs=2, default=[384, 512],
@@ -366,11 +366,15 @@ def main():
     root = Path(args.root)
     img_size = tuple(args.img_size)
     
-    dataset = PanelDataset(
-        root / args.split / 'images',
-        root / args.split / 'masks',
-        img_size
-    )
+    # Handle split directory structure
+    if args.split:
+        img_dir = root / args.split / 'images'
+        mask_dir = root / args.split / 'masks'
+    else:
+        img_dir = root / 'images'
+        mask_dir = root / 'masks'
+    
+    dataset = PanelDataset(img_dir, mask_dir, img_size)
     
     loader = DataLoader(dataset, batch_size=args.batch, shuffle=False, num_workers=0)
     print(f"Dataset: {len(dataset)} images\n")

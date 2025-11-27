@@ -10,8 +10,8 @@ from glob import glob
 from pathlib import Path
 
 # ===== 設定 =====
-mask_root = "./../Manga109_released_2023_12_07/masks/"         # マスクのルート（masks/作品名/カテゴリ名/*.png）
-image_root = "./../Manga109_released_2023_12_07/images"       # 画像のルート
+mask_root = "./../Manga109/masks/"         # マスクのルート（masks/作品名/カテゴリ名/*.png）
+image_root = "./../Manga109/images"       # 画像のルート
 target_category = "frame"                                   # 処理対象カテゴリ
 target_num = 1000                                       # 処理対象総数
 target_num_test = 0                                   # test_dataset用枚数'
@@ -83,6 +83,7 @@ def create_dataset(config, available_masks, used_indices=None):
         splits = {"": selected_indices}  # test_only の場合
     
     success_count = 0
+    file_counter = 0  # 全体のファイルカウンター
     
     for split_name, indices in splits.items():
         for local_idx, mask_idx in enumerate(indices):
@@ -97,13 +98,13 @@ def create_dataset(config, available_masks, used_indices=None):
             img_filename = mask_filename.replace("_mask.png", ".jpg")
             image_path = os.path.join(image_root, title, img_filename)
 
-            # 出力先ファイル名
+            # 出力先ファイル名（file_counterを使用して連番を保証）
             if structure == "train_val":
-                out_img_path = os.path.join(output_root, split_name, "images", f"{local_idx:03}.jpg")
-                out_mask_path = os.path.join(output_root, split_name, "masks", f"{local_idx:03}_mask.png")
+                out_img_path = os.path.join(output_root, split_name, "images", f"{file_counter:04d}.jpg")
+                out_mask_path = os.path.join(output_root, split_name, "masks", f"{file_counter:04d}_mask.png")
             else:  # test_only
-                out_img_path = os.path.join(output_root, "images", f"{local_idx:03}.jpg")
-                out_mask_path = os.path.join(output_root, "masks", f"{local_idx:03}_mask.png")
+                out_img_path = os.path.join(output_root, "images", f"{file_counter:04d}.jpg")
+                out_mask_path = os.path.join(output_root, "masks", f"{file_counter:04d}_mask.png")
 
             # エラーチェック
             if not os.path.isfile(image_path):
@@ -114,10 +115,11 @@ def create_dataset(config, available_masks, used_indices=None):
                 shutil.copy(image_path, out_img_path)
                 shutil.copy(mask_path, out_mask_path)
                 if structure == "train_val":
-                    print(f"[{split_name}:{local_idx+1:03}] コピー完了: {title}/{img_filename}")
+                    print(f"[{split_name}:{file_counter:04d}] コピー完了: {title}/{img_filename}")
                 else:
-                    print(f"[{success_count+1:03}] コピー完了: {title}/{img_filename}")
+                    print(f"[{file_counter:04d}] コピー完了: {title}/{img_filename}")
                 success_count += 1
+                file_counter += 1  # コピー成功時のみカウントアップ
             except Exception as e:
                 print(f"[エラー] コピー失敗 {image_path}: {e}")
 
