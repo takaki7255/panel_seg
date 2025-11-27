@@ -225,6 +225,7 @@ def save_predictions(model, loader, device, output_dir, threshold=0.5):
                 
                 Image.fromarray(vis).save(vis_dir / f"{stem}_vis.png")
     
+    print(f"✅ Original images saved to {img_dir}")
     print(f"✅ Predictions saved to {pred_dir}")
     print(f"✅ Visualizations saved to {vis_dir}")
 

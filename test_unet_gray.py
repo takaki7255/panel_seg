@@ -245,8 +245,11 @@ def save_predictions(model, loader, device, output_dir, threshold=0.5):
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     
+    # Create subdirectories
+    img_dir = output_dir / 'images'
     pred_dir = output_dir / 'predictions'
     vis_dir = output_dir / 'visualizations'
+    img_dir.mkdir(exist_ok=True)
     pred_dir.mkdir(exist_ok=True)
     vis_dir.mkdir(exist_ok=True)
     
@@ -267,6 +270,10 @@ def save_predictions(model, loader, device, output_dir, threshold=0.5):
             for i in range(len(x)):
                 stem = stems[i]
                 
+                # Save original image
+                orig = (x_np[i, 0] * 255).astype(np.uint8)
+                Image.fromarray(orig).save(img_dir / f"{stem}.png")
+                
                 # Save prediction mask
                 pred_mask = (preds_np[i, 0] * 255).astype(np.uint8)
                 Image.fromarray(pred_mask).save(pred_dir / f"{stem}_pred.png")
@@ -284,6 +291,7 @@ def save_predictions(model, loader, device, output_dir, threshold=0.5):
                 
                 Image.fromarray(vis).save(vis_dir / f"{stem}_vis.png")
     
+    print(f"✅ Original images saved to {img_dir}")
     print(f"✅ Predictions saved to {pred_dir}")
     print(f"✅ Visualizations saved to {vis_dir}")
 

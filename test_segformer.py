@@ -125,8 +125,10 @@ def evaluate_model(model, loader, device, threshold=0.5, compute_pr=True):
 def save_predictions(model, loader, device, output_dir, threshold=0.5):
     model.eval()
     output_dir = Path(output_dir)
+    img_dir = output_dir / 'images'
     pred_dir = output_dir / 'predictions'
     vis_dir = output_dir / 'visualizations'
+    img_dir.mkdir(parents=True, exist_ok=True)
     pred_dir.mkdir(parents=True, exist_ok=True)
     vis_dir.mkdir(parents=True, exist_ok=True)
     
@@ -138,7 +140,11 @@ def save_predictions(model, loader, device, output_dir, threshold=0.5):
             x_np = (x.cpu().numpy() * 255).astype(np.uint8)
             
             for i in range(len(x)):
+                # Save original image
+                Image.fromarray(x_np[i, 0]).save(img_dir / f"{stems[i]}.png")
+                # Save prediction
                 Image.fromarray(preds[i, 0]).save(pred_dir / f"{stems[i]}_pred.png")
+                # Save visualization
                 vis = np.concatenate([
                     np.stack([x_np[i, 0]]*3, 2),
                     np.stack([y_np[i, 0]]*3, 2),
@@ -146,7 +152,9 @@ def save_predictions(model, loader, device, output_dir, threshold=0.5):
                 ], axis=1)
                 Image.fromarray(vis).save(vis_dir / f"{stems[i]}_vis.png")
     
-    print(f"✅ Saved to {output_dir}")
+    print(f"✅ Original images saved to {img_dir}")
+    print(f"✅ Predictions saved to {pred_dir}")
+    print(f"✅ Visualizations saved to {vis_dir}")
 
 def plot_pr_curve(all_probs, all_gts, output_dir):
     precision, recall, _ = precision_recall_curve(all_gts, all_probs)
