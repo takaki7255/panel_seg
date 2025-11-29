@@ -31,7 +31,7 @@ import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
 from torch.optim import AdamW
-from torch.optim.lr_scheduler import CosineAnnealingLR, OneCycleLR
+from torch.optim.lr_scheduler import CosineAnnealingLR, OneCycleLR, LinearLR, SequentialLR
 from torchvision import transforms
 from PIL import Image
 from tqdm import tqdm
@@ -356,11 +356,31 @@ def train(args):
         weight_decay=args.weight_decay
     )
     
-    # Scheduler
+    # Scheduler with optional warmup
     total_steps = len(train_loader) * args.epochs
+    warmup_epochs = args.warmup_epochs
     
     if args.scheduler == 'cosine':
-        scheduler = CosineAnnealingLR(optimizer, T_max=args.epochs)
+        if warmup_epochs > 0:
+            # Linear warmup + Cosine annealing
+            warmup_scheduler = LinearLR(
+                optimizer, 
+                start_factor=0.01,  # Start at 1% of base LR
+                end_factor=1.0,
+                total_iters=warmup_epochs
+            )
+            main_scheduler = CosineAnnealingLR(
+                optimizer, 
+                T_max=args.epochs - warmup_epochs
+            )
+            scheduler = SequentialLR(
+                optimizer,
+                schedulers=[warmup_scheduler, main_scheduler],
+                milestones=[warmup_epochs]
+            )
+            print(f"Using LinearWarmup ({warmup_epochs} epochs) + CosineAnnealing")
+        else:
+            scheduler = CosineAnnealingLR(optimizer, T_max=args.epochs)
         step_scheduler = False
     elif args.scheduler == 'onecycle':
         scheduler = OneCycleLR(
@@ -481,6 +501,8 @@ def parse_args():
     parser.add_argument('--weight-decay', type=float, default=0.01)
     parser.add_argument('--scheduler', type=str, default='cosine',
                         choices=['cosine', 'onecycle', 'none'])
+    parser.add_argument('--warmup-epochs', type=int, default=5,
+                        help='Number of warmup epochs (0 to disable, recommended: 5-10)')
     parser.add_argument('--dropout', type=float, default=0.0,
                         help='Dropout rate (0.0-0.5 recommended for regularization)')
     parser.add_argument('--workers', type=int, default=4)

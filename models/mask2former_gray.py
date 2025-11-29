@@ -34,16 +34,16 @@ class Mask2FormerGray(nn.Module):
         model_name: str = "facebook/mask2former-swin-tiny-coco-instance",
         num_labels: int = 1,  # Only "panel" class
         pretrained: bool = True,
-        dropout: float = 0.0  # Dropout rate for regularization
+        dropout: float = 0.0  # Note: dropout not applied to avoid attention mask issues
     ):
         super().__init__()
         
         self.num_labels = num_labels
         
-        # Load config first to set dropout
+        # Load config - Note: do NOT set config.dropout as it causes attention mask size mismatch
         config = Mask2FormerConfig.from_pretrained(model_name)
         config.num_labels = num_labels
-        config.dropout = dropout
+        # config.dropout = dropout  # Disabled: causes RuntimeError with attention mask
         
         if pretrained:
             # Load pretrained Mask2Former with modified config
