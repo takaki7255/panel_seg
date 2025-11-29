@@ -1,0 +1,255 @@
+"""
+Mask2Former with Swin-T backbone for Panel Instance Segmentation
+
+This model uses Mask2Former architecture with Swin Transformer backbone
+for instance segmentation of manga panels.
+
+Input: 3 channels (Grayscale + LSD + SDF)
+Output: Instance masks for each panel
+
+Reference:
+- Mask2Former: https://arxiv.org/abs/2112.01527
+- Swin Transformer: https://arxiv.org/abs/2103.14030
+"""
+
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+from transformers import Mask2FormerForUniversalSegmentation, Mask2FormerConfig
+from transformers import Mask2FormerImageProcessor
+import numpy as np
+
+
+class Mask2FormerPanel(nn.Module):
+    """
+    Mask2Former for Panel Instance Segmentation
+    
+    Uses Swin-T backbone with 3-channel input (Gray + LSD + SDF)
+    """
+    
+    def __init__(
+        self,
+        model_name: str = "facebook/mask2former-swin-tiny-coco-instance",
+        num_labels: int = 1,  # Only "panel" class
+        in_channels: int = 3,
+        pretrained: bool = True
+    ):
+        super().__init__()
+        
+        self.num_labels = num_labels
+        self.in_channels = in_channels
+        
+        if pretrained:
+            # Load pretrained Mask2Former
+            self.model = Mask2FormerForUniversalSegmentation.from_pretrained(
+                model_name,
+                num_labels=num_labels,
+                ignore_mismatched_sizes=True
+            )
+        else:
+            # Create from config
+            config = Mask2FormerConfig.from_pretrained(model_name)
+            config.num_labels = num_labels
+            self.model = Mask2FormerForUniversalSegmentation(config)
+        
+        # Modify first conv layer for custom input channels if needed
+        # Swin-T expects 3 channels, which matches our Gray+LSD+SDF input
+        
+        # Image processor for post-processing
+        self.processor = Mask2FormerImageProcessor.from_pretrained(model_name)
+    
+    def forward(self, pixel_values, mask_labels=None, class_labels=None):
+        """
+        Forward pass
+        
+        Args:
+            pixel_values: (B, 3, H, W) input images
+            mask_labels: List of (num_instances, H, W) instance masks for training
+            class_labels: List of (num_instances,) class labels for training
+        
+        Returns:
+            If training: loss dict
+            If inference: model outputs with masks_queries_logits and class_queries_logits
+        """
+        if mask_labels is not None and class_labels is not None:
+            # Training mode
+            outputs = self.model(
+                pixel_values=pixel_values,
+                mask_labels=mask_labels,
+                class_labels=class_labels
+            )
+            return outputs
+        else:
+            # Inference mode
+            outputs = self.model(pixel_values=pixel_values)
+            return outputs
+    
+    def predict(self, pixel_values, threshold=0.5, mask_threshold=0.5):
+        """
+        Predict instance masks
+        
+        Args:
+            pixel_values: (B, 3, H, W) input images
+            threshold: Score threshold for predictions
+            mask_threshold: Threshold for binary masks
+        
+        Returns:
+            List of dicts with 'masks', 'scores', 'labels' for each image
+        """
+        self.eval()
+        with torch.no_grad():
+            outputs = self.model(pixel_values=pixel_values)
+        
+        # Post-process to get instance masks
+        results = []
+        
+        # Get original sizes (assuming all same size in batch)
+        target_sizes = [(pixel_values.shape[2], pixel_values.shape[3])] * pixel_values.shape[0]
+        
+        # Process predictions
+        predictions = self.processor.post_process_instance_segmentation(
+            outputs,
+            threshold=threshold,
+            mask_threshold=mask_threshold,
+            target_sizes=target_sizes
+        )
+        
+        for pred in predictions:
+            results.append({
+                'masks': pred['segmentation'],  # Instance segmentation map
+                'segments_info': pred['segments_info']  # Info about each segment
+            })
+        
+        return results
+
+
+class Mask2FormerPanelSimple(nn.Module):
+    """
+    Simplified Mask2Former wrapper that handles training/inference cleanly
+    
+    This version provides a simpler interface for training with instance masks.
+    """
+    
+    def __init__(
+        self,
+        model_name: str = "facebook/mask2former-swin-tiny-coco-instance",
+        num_labels: int = 1,
+        pretrained: bool = True,
+        dropout: float = 0.0
+    ):
+        super().__init__()
+        
+        self.num_labels = num_labels
+        
+        # Load config first to set dropout
+        config = Mask2FormerConfig.from_pretrained(model_name)
+        config.num_labels = num_labels
+        config.dropout = dropout
+        
+        if pretrained:
+            self.model = Mask2FormerForUniversalSegmentation.from_pretrained(
+                model_name,
+                config=config,
+                ignore_mismatched_sizes=True
+            )
+        else:
+            self.model = Mask2FormerForUniversalSegmentation(config)
+        
+        self.processor = Mask2FormerImageProcessor.from_pretrained(model_name)
+    
+    def forward(self, pixel_values, mask_labels=None, class_labels=None):
+        """Forward pass for training or inference"""
+        return self.model(
+            pixel_values=pixel_values,
+            mask_labels=mask_labels,
+            class_labels=class_labels
+        )
+    
+    @torch.no_grad()
+    def predict_instances(self, pixel_values, threshold=0.5):
+        """
+        Predict instance segmentation
+        
+        Returns:
+            instance_maps: (B, H, W) tensor with instance IDs (0=background)
+            instance_infos: List of segment information per image
+        """
+        self.eval()
+        outputs = self.model(pixel_values=pixel_values)
+        
+        B, _, H, W = pixel_values.shape
+        target_sizes = [(H, W)] * B
+        
+        predictions = self.processor.post_process_instance_segmentation(
+            outputs,
+            threshold=threshold,
+            target_sizes=target_sizes
+        )
+        
+        instance_maps = []
+        instance_infos = []
+        
+        for pred in predictions:
+            instance_maps.append(pred['segmentation'])
+            instance_infos.append(pred['segments_info'])
+        
+        return instance_maps, instance_infos
+
+
+def create_mask2former(
+    model_name: str = "facebook/mask2former-swin-tiny-coco-instance",
+    num_labels: int = 1,
+    pretrained: bool = True,
+    dropout: float = 0.0
+):
+    """
+    Factory function to create Mask2Former model
+    
+    Args:
+        model_name: Pretrained model name
+            - "facebook/mask2former-swin-tiny-coco-instance" (Swin-T, recommended)
+            - "facebook/mask2former-swin-small-coco-instance" (Swin-S)
+            - "facebook/mask2former-swin-base-coco-instance" (Swin-B)
+        num_labels: Number of classes (1 for panel only)
+        pretrained: Whether to use pretrained weights
+        dropout: Dropout rate for regularization (0.0 to 0.5 recommended)
+    
+    Returns:
+        Mask2FormerPanelSimple model
+    """
+    return Mask2FormerPanelSimple(
+        model_name=model_name,
+        num_labels=num_labels,
+        pretrained=pretrained,
+        dropout=dropout
+    )
+
+
+if __name__ == '__main__':
+    # Test model creation
+    print("Testing Mask2Former model creation...")
+    
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    print(f"Device: {device}")
+    
+    # Create model
+    model = create_mask2former(pretrained=True).to(device)
+    print("✅ Model created")
+    
+    # Test forward pass
+    dummy_input = torch.randn(2, 3, 384, 512).to(device)
+    
+    # Inference mode
+    with torch.no_grad():
+        outputs = model(dummy_input)
+    
+    print(f"✅ Forward pass successful")
+    print(f"   - masks_queries_logits shape: {outputs.masks_queries_logits.shape}")
+    print(f"   - class_queries_logits shape: {outputs.class_queries_logits.shape}")
+    
+    # Test prediction
+    instance_maps, instance_infos = model.predict_instances(dummy_input)
+    print(f"✅ Prediction successful")
+    print(f"   - Instance maps: {len(instance_maps)} images")
+    for i, (imap, info) in enumerate(zip(instance_maps, instance_infos)):
+        print(f"   - Image {i}: {len(info)} instances detected")

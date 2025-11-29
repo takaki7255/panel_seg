@@ -13,7 +13,7 @@ from pathlib import Path
 mask_root = "./../Manga109/masks/"         # マスクのルート（masks/作品名/カテゴリ名/*.png）
 image_root = "./../Manga109/images"       # 画像のルート
 target_category = "frame"                                   # 処理対象カテゴリ
-target_num = 1000                                       # 処理対象総数
+target_num = 5000                                       # 処理対象総数
 target_num_test = 0                                   # test_dataset用枚数'
 
 # データセット設定（target_categoryベースで出力先を決定）
