@@ -26,7 +26,7 @@ $ErrorActionPreference = "Stop"
 # Configuration
 # ============================================================================
 $DATASET = "./instance_dataset/5000_instance"
-$EPOCHS = 100
+$EPOCHS = 50
 $BATCH_SIZE = 8
 $LR = "1e-4"
 $WEIGHT_DECAY = 0.01

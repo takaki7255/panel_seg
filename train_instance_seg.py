@@ -169,11 +169,22 @@ class COCOInstanceDataset(torch.utils.data.Dataset):
         labels = []
         areas = []
         
+        # RLEを一括デコード（高速化）
+        rle_list = []
+        valid_anns = []
         for ann in anns:
-            # RLEマスクをデコード
             if isinstance(ann['segmentation'], dict):
-                rle = ann['segmentation']
-                mask = mask_utils.decode(rle)
+                rle_list.append(ann['segmentation'])
+                valid_anns.append(ann)
+        
+        if rle_list:
+            # 一括デコード
+            decoded_masks = mask_utils.decode(rle_list)  # (H, W, N)
+            if decoded_masks.ndim == 2:
+                decoded_masks = decoded_masks[:, :, np.newaxis]
+            
+            for i, ann in enumerate(valid_anns):
+                mask = decoded_masks[:, :, i]
                 
                 # マスクをリサイズ
                 mask_resized = cv2.resize(
@@ -830,6 +841,7 @@ def train(args):
     # 学習ループ
     best_val_loss = float('inf')
     history = {'train_loss': [], 'val_loss': []}
+    patience_counter = 0
     
     for epoch in range(1, args.epochs + 1):
         print(f"\n{'='*60}")
@@ -870,8 +882,17 @@ def train(args):
         # ベストモデル保存
         if val_loss < best_val_loss:
             best_val_loss = val_loss
+            patience_counter = 0
             torch.save(model.state_dict(), output_dir / 'best.pt')
             print(f"✅ Best model saved (val_loss: {val_loss:.4f})")
+        else:
+            patience_counter += 1
+            print(f"⏳ No improvement for {patience_counter}/{args.patience} epochs")
+        
+        # Early Stopping
+        if args.patience > 0 and patience_counter >= args.patience:
+            print(f"\n🛑 Early stopping triggered after {epoch} epochs (no improvement for {args.patience} epochs)")
+            break
         
         # チェックポイント
         if epoch % args.save_every == 0:
@@ -1003,6 +1024,8 @@ def parse_args():
                         choices=['cosine', 'step', 'onecycle', 'none'],
                         help='Learning rate scheduler')
     parser.add_argument('--workers', type=int, default=4)
+    parser.add_argument('--patience', type=int, default=15,
+                        help='Early stopping patience (0 to disable, default: 15)')
     
     # 出力
     parser.add_argument('--output', type=str, default='./instance_outputs')
