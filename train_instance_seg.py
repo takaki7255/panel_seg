@@ -42,12 +42,6 @@ from PIL import Image
 from tqdm import tqdm
 import cv2
 
-from pycocotools.coco import COCO
-from pycocotools.cocoeval import COCOeval
-from pycocotools import mask as mask_utils
-import sys
-from io import StringIO
-
 # メトリクス計算用
 from utils.instance_metrics import (
     compute_instance_metrics,
@@ -67,8 +61,8 @@ except ImportError:
 # ============================================================================
 class COCOInstanceDataset(torch.utils.data.Dataset):
     """
-    COCO形式のインスタンスセグメンテーションデータセット
-    RLEマスクを直接読み込む
+    インスタンスセグメンテーションデータセット
+    PNG形式のinstance_masksから読み込む（高速）
     
     input_type:
         'gray': グレースケール1チャンネル
@@ -81,20 +75,29 @@ class COCOInstanceDataset(torch.utils.data.Dataset):
         self.augment = augment and (split == 'train')
         self.input_type = input_type
         
-        # COCO APIで読み込み
-        ann_file = self.root / 'annotations.json'
-        if not ann_file.exists():
-            raise FileNotFoundError(f"Annotation file not found: {ann_file}")
-        
-        # COCO APIのprint出力を抑制
-        old_stdout = sys.stdout
-        sys.stdout = StringIO()
-        try:
-            self.coco = COCO(str(ann_file))
-        finally:
-            sys.stdout = old_stdout
-        self.img_ids = list(self.coco.imgs.keys())
         self.img_dir = self.root / 'images'
+        self.instance_masks_dir = self.root / 'instance_masks'
+        
+        # PNG instance_masks が存在するか確認
+        if not self.instance_masks_dir.exists():
+            raise FileNotFoundError(
+                f"instance_masks directory not found: {self.instance_masks_dir}\n"
+                "Please regenerate dataset with updated create_instance_dataset.py"
+            )
+        
+        # 画像リストを取得（instance_masksから逆引き）
+        self.samples = []
+        for mask_path in sorted(self.instance_masks_dir.glob('*_instance.png')):
+            # 00001_instance.png -> 00001
+            base_name = mask_path.stem.replace('_instance', '')
+            img_path = self.img_dir / f"{base_name}.jpg"
+            if img_path.exists():
+                self.samples.append({
+                    'id': int(base_name),
+                    'img_path': img_path,
+                    'mask_path': mask_path,
+                    'base_name': base_name
+                })
         
         # LSD/SDFディレクトリ (3chの場合)
         self.lsd_dir = self.root / 'lsd'
@@ -106,22 +109,21 @@ class COCOInstanceDataset(torch.utils.data.Dataset):
                 print(f"  Warning: LSD/SDF directories not found, falling back to gray mode")
                 self.input_type = 'gray'
         
-        # カテゴリIDのマッピング（COCOのIDを連続IDに変換）
-        self.cat_ids = sorted(self.coco.getCatIds())
-        self.cat_id_to_continuous = {cat_id: i + 1 for i, cat_id in enumerate(self.cat_ids)}
+        # カテゴリIDは1のみ（frame）
+        self.cat_ids = [1]
         
-        print(f"  {split}: {len(self.img_ids)} images, {len(self.coco.anns)} annotations, input={self.input_type}")
+        print(f"  {split}: {len(self.samples)} images (PNG instance_masks), input={self.input_type}")
     
     def __len__(self):
-        return len(self.img_ids)
+        return len(self.samples)
     
     def __getitem__(self, idx):
-        img_id = self.img_ids[idx]
-        img_info = self.coco.imgs[img_id]
+        sample = self.samples[idx]
+        img_id = sample['id']
+        base_name = sample['base_name']
         
         # 画像読み込み
-        img_path = self.img_dir / img_info['file_name']
-        img = Image.open(img_path).convert('L')  # グレースケールで読み込み
+        img = Image.open(sample['img_path']).convert('L')  # グレースケールで読み込み
         orig_w, orig_h = img.size
         
         # リサイズ
@@ -130,9 +132,6 @@ class COCOInstanceDataset(torch.utils.data.Dataset):
         
         if self.input_type == '3ch':
             # LSD読み込み
-            lsd_filename = img_info['file_name'].replace('.jpg', '_lsd.png').replace('.png', '_lsd.png')
-            # ファイル名から拡張子を除いて_lsd.pngを付加
-            base_name = Path(img_info['file_name']).stem
             lsd_path = self.lsd_dir / f"{base_name}_lsd.png"
             if lsd_path.exists():
                 lsd = Image.open(lsd_path).convert('L')
@@ -160,54 +159,44 @@ class COCOInstanceDataset(torch.utils.data.Dataset):
         scale_x = self.img_size[1] / orig_w
         scale_y = self.img_size[0] / orig_h
         
-        # アノテーション取得
-        ann_ids = self.coco.getAnnIds(imgIds=img_id)
-        anns = self.coco.loadAnns(ann_ids)
+        # ===== PNG instance_masks から読み込み（高速） =====
+        instance_mask = cv2.imread(str(sample['mask_path']), cv2.IMREAD_UNCHANGED)
+        
+        # 元サイズでインスタンスIDを取得
+        instance_ids = np.unique(instance_mask)
+        instance_ids = instance_ids[instance_ids > 0]  # 0（背景）を除外
         
         boxes = []
         masks = []
         labels = []
         areas = []
         
-        # RLEを一括デコード（高速化）
-        rle_list = []
-        valid_anns = []
-        for ann in anns:
-            if isinstance(ann['segmentation'], dict):
-                rle_list.append(ann['segmentation'])
-                valid_anns.append(ann)
-        
-        if rle_list:
-            # 一括デコード
-            decoded_masks = mask_utils.decode(rle_list)  # (H, W, N)
-            if decoded_masks.ndim == 2:
-                decoded_masks = decoded_masks[:, :, np.newaxis]
+        for inst_id in instance_ids:
+            # 各インスタンスのマスクを抽出
+            mask = (instance_mask == inst_id).astype(np.uint8)
             
-            for i, ann in enumerate(valid_anns):
-                mask = decoded_masks[:, :, i]
-                
-                # マスクをリサイズ
-                mask_resized = cv2.resize(
-                    mask, 
-                    (self.img_size[1], self.img_size[0]),
-                    interpolation=cv2.INTER_NEAREST
-                )
-                
-                # バウンディングボックス計算
-                pos = np.where(mask_resized > 0)
-                if len(pos[0]) == 0:
-                    continue
-                
-                ymin, ymax = pos[0].min(), pos[0].max()
-                xmin, xmax = pos[1].min(), pos[1].max()
-                
-                if xmax <= xmin or ymax <= ymin:
-                    continue
-                
-                boxes.append([xmin, ymin, xmax, ymax])
-                masks.append(mask_resized)
-                labels.append(self.cat_id_to_continuous[ann['category_id']])
-                areas.append((xmax - xmin) * (ymax - ymin))
+            # マスクをリサイズ
+            mask_resized = cv2.resize(
+                mask, 
+                (self.img_size[1], self.img_size[0]),
+                interpolation=cv2.INTER_NEAREST
+            )
+            
+            # バウンディングボックス計算
+            pos = np.where(mask_resized > 0)
+            if len(pos[0]) == 0:
+                continue
+            
+            ymin, ymax = pos[0].min(), pos[0].max()
+            xmin, xmax = pos[1].min(), pos[1].max()
+            
+            if xmax <= xmin or ymax <= ymin:
+                continue
+            
+            boxes.append([xmin, ymin, xmax, ymax])
+            masks.append(mask_resized)
+            labels.append(1)  # 全てframeカテゴリ (ID=1)
+            areas.append((xmax - xmin) * (ymax - ymin))
         
         # データ拡張
         if self.augment and len(boxes) > 0:

@@ -339,6 +339,7 @@ def create_split_dataset(data, image_ids, output_dir, image_root, split_name,
                          generate_lsd_sdf=True, min_line_length=10, sdf_max_dist=50):
     """
     指定されたimage_idsのデータでCOCO形式データセットを作成
+    PNG形式のinstance_masksも同時に生成
     """
     image_id_set = set(image_ids)
     
@@ -374,7 +375,9 @@ def create_split_dataset(data, image_ids, output_dir, image_root, split_name,
     # 出力ディレクトリ作成
     split_output = Path(output_dir) / split_name
     images_dir = split_output / "images"
+    instance_masks_dir = split_output / "instance_masks"  # PNG形式マスク用
     images_dir.mkdir(parents=True, exist_ok=True)
+    instance_masks_dir.mkdir(parents=True, exist_ok=True)
     
     # LSD/SDFディレクトリ作成
     if generate_lsd_sdf:
@@ -383,7 +386,12 @@ def create_split_dataset(data, image_ids, output_dir, image_root, split_name,
         lsd_dir.mkdir(parents=True, exist_ok=True)
         sdf_dir.mkdir(parents=True, exist_ok=True)
     
-    # 画像をコピーし、LSD/SDFを生成
+    # image_id -> annotations マッピングを作成
+    img_to_anns = defaultdict(list)
+    for ann in new_annotations:
+        img_to_anns[ann['image_id']].append(ann)
+    
+    # 画像をコピーし、LSD/SDF、instance_masksを生成
     copied_count = 0
     lsd_stats = []
     
@@ -399,6 +407,28 @@ def create_split_dataset(data, image_ids, output_dir, image_root, split_name,
         if src_path.exists():
             shutil.copy(src_path, dst_path)
             copied_count += 1
+            
+            # 画像サイズを取得（instance_mask生成用）
+            src_img = cv2.imread(str(src_path))
+            if src_img is not None:
+                img_h, img_w = src_img.shape[:2]
+                
+                # ===== instance_masks生成（PNG形式） =====
+                # 各インスタンスに異なるIDを割り当てたマスクを作成
+                instance_mask = np.zeros((img_h, img_w), dtype=np.uint16)
+                anns = img_to_anns[img['id']]
+                
+                for inst_idx, ann in enumerate(anns, start=1):
+                    if isinstance(ann['segmentation'], dict):
+                        # RLEをデコード
+                        rle = ann['segmentation']
+                        mask = mask_utils.decode(rle)
+                        # インスタンスIDを割り当て
+                        instance_mask[mask > 0] = inst_idx
+                
+                # PNG形式で保存（16bit対応）
+                instance_mask_filename = f"{img['id']:05d}_instance.png"
+                cv2.imwrite(str(instance_masks_dir / instance_mask_filename), instance_mask)
             
             # LSD/SDF生成
             if generate_lsd_sdf:
@@ -430,6 +460,7 @@ def create_split_dataset(data, image_ids, output_dir, image_root, split_name,
         json.dump(split_data, f)
     
     print(f"  {split_name}: {len(new_images)} images, {len(new_annotations)} annotations, {copied_count} images copied")
+    print(f"    instance_masks: {copied_count} PNG files generated")
     
     if generate_lsd_sdf and lsd_stats:
         print(f"    LSD: avg {np.mean(lsd_stats):.1f} ± {np.std(lsd_stats):.1f} lines/image")
