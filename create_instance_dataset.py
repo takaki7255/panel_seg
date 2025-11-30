@@ -23,8 +23,8 @@ import cv2
 from scipy.ndimage import distance_transform_edt
 
 # ===== 設定 =====
-ANNOTATION_ROOT = "../Manga109_released_2023_12_07/manga_seg_jsons"
-IMAGE_ROOT = "../Manga109_released_2023_12_07/images/"
+ANNOTATION_ROOT = "../manga109/manga_seg_jsons"
+IMAGE_ROOT = "../manga109/images/"
 OUTPUT_ROOT = "./instance_dataset"
 
 # カテゴリフィルタ（Noneの場合は全カテゴリ、リストで指定可能）
@@ -159,6 +159,7 @@ def compute_sdf(line_map, max_distance=50):
     
     Returns:
         sdf_map: (H, W) 正規化された距離マップ [0, 255]
+                 線に近いほど白(255)、遠いほど黒(0)
     """
     # バイナリ化
     binary_map = (line_map > 127).astype(np.uint8)
@@ -169,8 +170,8 @@ def compute_sdf(line_map, max_distance=50):
     # 正規化
     distance_normalized = np.clip(distance / max_distance, 0, 1)
     
-    # [0, 255]に変換
-    sdf_map = (distance_normalized * 255).astype(np.uint8)
+    # [0, 255]に変換し、反転（線に近いほど白、遠いほど黒）
+    sdf_map = (255 - distance_normalized * 255).astype(np.uint8)
     
     return sdf_map
 

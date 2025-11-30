@@ -45,6 +45,8 @@ import cv2
 from pycocotools.coco import COCO
 from pycocotools.cocoeval import COCOeval
 from pycocotools import mask as mask_utils
+import sys
+from io import StringIO
 
 # メトリクス計算用
 from utils.instance_metrics import (
@@ -67,27 +69,48 @@ class COCOInstanceDataset(torch.utils.data.Dataset):
     """
     COCO形式のインスタンスセグメンテーションデータセット
     RLEマスクを直接読み込む
+    
+    input_type:
+        'gray': グレースケール1チャンネル
+        '3ch': Gray + LSD + SDF の3チャンネル
     """
     
-    def __init__(self, root_dir, split='train', img_size=(512, 512), augment=True):
+    def __init__(self, root_dir, split='train', img_size=(512, 512), augment=True, input_type='3ch'):
         self.root = Path(root_dir) / split
         self.img_size = img_size if isinstance(img_size, tuple) else (img_size, img_size)
         self.augment = augment and (split == 'train')
+        self.input_type = input_type
         
         # COCO APIで読み込み
         ann_file = self.root / 'annotations.json'
         if not ann_file.exists():
             raise FileNotFoundError(f"Annotation file not found: {ann_file}")
         
-        self.coco = COCO(str(ann_file))
+        # COCO APIのprint出力を抑制
+        old_stdout = sys.stdout
+        sys.stdout = StringIO()
+        try:
+            self.coco = COCO(str(ann_file))
+        finally:
+            sys.stdout = old_stdout
         self.img_ids = list(self.coco.imgs.keys())
         self.img_dir = self.root / 'images'
+        
+        # LSD/SDFディレクトリ (3chの場合)
+        self.lsd_dir = self.root / 'lsd'
+        self.sdf_dir = self.root / 'sdf'
+        
+        # 3chモードでLSD/SDFが存在するか確認
+        if self.input_type == '3ch':
+            if not self.lsd_dir.exists() or not self.sdf_dir.exists():
+                print(f"  Warning: LSD/SDF directories not found, falling back to gray mode")
+                self.input_type = 'gray'
         
         # カテゴリIDのマッピング（COCOのIDを連続IDに変換）
         self.cat_ids = sorted(self.coco.getCatIds())
         self.cat_id_to_continuous = {cat_id: i + 1 for i, cat_id in enumerate(self.cat_ids)}
         
-        print(f"  {split}: {len(self.img_ids)} images, {len(self.coco.anns)} annotations")
+        print(f"  {split}: {len(self.img_ids)} images, {len(self.coco.anns)} annotations, input={self.input_type}")
     
     def __len__(self):
         return len(self.img_ids)
@@ -98,13 +121,40 @@ class COCOInstanceDataset(torch.utils.data.Dataset):
         
         # 画像読み込み
         img_path = self.img_dir / img_info['file_name']
-        img = Image.open(img_path).convert('RGB')
+        img = Image.open(img_path).convert('L')  # グレースケールで読み込み
         orig_w, orig_h = img.size
         
         # リサイズ
         img = img.resize((self.img_size[1], self.img_size[0]), Image.BILINEAR)
-        img_np = np.array(img, dtype=np.float32) / 255.0
-        img_np = img_np.transpose(2, 0, 1)  # HWC -> CHW
+        gray_np = np.array(img, dtype=np.float32) / 255.0
+        
+        if self.input_type == '3ch':
+            # LSD読み込み
+            lsd_filename = img_info['file_name'].replace('.jpg', '_lsd.png').replace('.png', '_lsd.png')
+            # ファイル名から拡張子を除いて_lsd.pngを付加
+            base_name = Path(img_info['file_name']).stem
+            lsd_path = self.lsd_dir / f"{base_name}_lsd.png"
+            if lsd_path.exists():
+                lsd = Image.open(lsd_path).convert('L')
+                lsd = lsd.resize((self.img_size[1], self.img_size[0]), Image.BILINEAR)
+                lsd_np = np.array(lsd, dtype=np.float32) / 255.0
+            else:
+                lsd_np = np.zeros_like(gray_np)
+            
+            # SDF読み込み
+            sdf_path = self.sdf_dir / f"{base_name}_sdf.png"
+            if sdf_path.exists():
+                sdf = Image.open(sdf_path).convert('L')
+                sdf = sdf.resize((self.img_size[1], self.img_size[0]), Image.BILINEAR)
+                sdf_np = np.array(sdf, dtype=np.float32) / 255.0
+            else:
+                sdf_np = np.zeros_like(gray_np)
+            
+            # 3チャンネルに結合 (Gray, LSD, SDF)
+            img_np = np.stack([gray_np, lsd_np, sdf_np], axis=0)  # (3, H, W)
+        else:
+            # グレースケールを3チャンネルに複製（事前学習済みモデル用）
+            img_np = np.stack([gray_np, gray_np, gray_np], axis=0)  # (3, H, W)
         
         # スケール計算
         scale_x = self.img_size[1] / orig_w
@@ -242,8 +292,12 @@ def create_mask2former(num_classes, pretrained=True, dropout=0.0, model_name='fa
             model = Mask2FormerForUniversalSegmentation(config)
         
         # Dropout設定
+        # 注意: Mask2Formerではconfig.dropoutを変更すると
+        # attention maskサイズの不整合エラーが発生する可能性があります
+        # 代わりにweight_decayを使用することを推奨
         if dropout > 0:
-            model.config.dropout = dropout
+            print(f"Warning: Mask2Former dropout設定は互換性の問題があります。weight_decayの使用を推奨。")
+            # model.config.dropout = dropout  # 無効化
         
         return model, model_name
     except ImportError:
@@ -495,11 +549,19 @@ def evaluate_instance_metrics(model, loader, device, model_type='maskrcnn', mode
     return summary
 
 
-def save_visualization(model, loader, device, output_dir, model_type='maskrcnn', num_samples=10):
+def save_visualization(model, loader, device, output_dir, model_type='maskrcnn', model_name=None, num_samples=10):
     """予測結果の可視化を保存"""
     model.eval()
     vis_dir = Path(output_dir) / 'visualizations'
     vis_dir.mkdir(exist_ok=True)
+    
+    # Mask2Former用プロセッサ
+    processor = None
+    if model_type == 'mask2former':
+        from transformers import Mask2FormerImageProcessor
+        processor = Mask2FormerImageProcessor.from_pretrained(
+            model_name or 'facebook/mask2former-swin-tiny-coco-instance'
+        )
     
     count = 0
     with torch.no_grad():
@@ -511,34 +573,80 @@ def save_visualization(model, loader, device, output_dir, model_type='maskrcnn',
             
             if model_type == 'maskrcnn':
                 outputs = model(images_device)
-            
-            for img, output, target in zip(images, outputs, targets):
-                if count >= num_samples:
-                    break
                 
-                # 画像をnumpyに変換
-                img_np = (img.permute(1, 2, 0).numpy() * 255).astype(np.uint8)
-                img_np = cv2.cvtColor(img_np, cv2.COLOR_RGB2BGR)
-                overlay = img_np.copy()
-                
-                # 予測マスクを描画
-                masks = output['masks'].cpu().numpy()
-                scores = output['scores'].cpu().numpy()
-                
-                for i in range(len(masks)):
-                    if scores[i] < 0.5:
-                        continue
+                for img, output, target in zip(images, outputs, targets):
+                    if count >= num_samples:
+                        break
                     
-                    mask = masks[i, 0] > 0.5
-                    color = np.random.randint(0, 255, 3).tolist()
-                    overlay[mask] = color
+                    # 画像をnumpyに変換
+                    img_np = (img.permute(1, 2, 0).numpy() * 255).astype(np.uint8)
+                    img_np = cv2.cvtColor(img_np, cv2.COLOR_RGB2BGR)
+                    overlay = img_np.copy()
+                    
+                    # 予測マスクを描画
+                    masks = output['masks'].cpu().numpy()
+                    scores = output['scores'].cpu().numpy()
+                    
+                    for i in range(len(masks)):
+                        if scores[i] < 0.5:
+                            continue
+                        
+                        mask = masks[i, 0] > 0.5
+                        color = np.random.randint(0, 255, 3).tolist()
+                        overlay[mask] = color
+                        
+                        # 境界線を描画
+                        contours, _ = cv2.findContours(
+                            mask.astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+                        )
+                        cv2.drawContours(overlay, contours, -1, (0, 255, 0), 2)
+                    
+                    result = cv2.addWeighted(img_np, 0.4, overlay, 0.6, 0)
+                    
+                    # 保存
+                    img_id = target['image_id'].item()
+                    cv2.imwrite(str(vis_dir / f'pred_{img_id:05d}.jpg'), result)
+                    count += 1
+                    
+            elif model_type == 'mask2former':
+                # Mask2Formerの出力処理
+                batch_images = torch.stack(images).to(device)
+                outputs = model(pixel_values=batch_images)
                 
-                result = cv2.addWeighted(img_np, 0.5, overlay, 0.5, 0)
-                
-                # 保存
-                img_id = target['image_id'].item()
-                cv2.imwrite(str(vis_dir / f'pred_{img_id:05d}.jpg'), result)
-                count += 1
+                for idx, (img, target) in enumerate(zip(images, targets)):
+                    if count >= num_samples:
+                        break
+                    
+                    # 後処理
+                    result = processor.post_process_instance_segmentation(
+                        outputs, 
+                        target_sizes=[(img.shape[1], img.shape[2])]
+                    )[0]
+                    
+                    # 画像をnumpyに変換
+                    img_np = (img.permute(1, 2, 0).numpy() * 255).astype(np.uint8)
+                    img_np = cv2.cvtColor(img_np, cv2.COLOR_RGB2BGR)
+                    overlay = img_np.copy()
+                    
+                    if 'segments_info' in result:
+                        segmentation = result['segmentation'].cpu().numpy()
+                        for seg_info in result['segments_info']:
+                            mask = (segmentation == seg_info['id']).astype(np.uint8)
+                            color = np.random.randint(0, 255, 3).tolist()
+                            overlay[mask > 0] = color
+                            
+                            # 境界線を描画
+                            contours, _ = cv2.findContours(
+                                mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+                            )
+                            cv2.drawContours(overlay, contours, -1, (0, 255, 0), 2)
+                    
+                    vis_result = cv2.addWeighted(img_np, 0.4, overlay, 0.6, 0)
+                    
+                    # 保存
+                    img_id = target['image_id'].item()
+                    cv2.imwrite(str(vis_dir / f'pred_{img_id:05d}.jpg'), vis_result)
+                    count += 1
     
     print(f"Saved {count} visualizations to {vis_dir}")
 
@@ -569,10 +677,18 @@ def train(args):
     
     # データセット
     img_size = tuple(args.img_size)
+    input_type = args.input_type
     
-    train_dataset = COCOInstanceDataset(args.data, 'train', img_size, augment=True)
-    val_dataset = COCOInstanceDataset(args.data, 'val', img_size, augment=False)
-    test_dataset = COCOInstanceDataset(args.data, 'test', img_size, augment=False)
+    train_dataset = COCOInstanceDataset(args.data, 'train', img_size, augment=True, input_type=input_type)
+    val_dataset = COCOInstanceDataset(args.data, 'val', img_size, augment=False, input_type=input_type)
+    
+    # testデータセットの存在確認
+    test_dir = Path(args.data) / 'test'
+    if test_dir.exists() and (test_dir / 'annotations.json').exists():
+        test_dataset = COCOInstanceDataset(args.data, 'test', img_size, augment=False, input_type=input_type)
+    else:
+        print(f"Warning: test dataset not found at {test_dir}, using val dataset for testing")
+        test_dataset = val_dataset
     
     train_loader = DataLoader(
         train_dataset, batch_size=args.batch, shuffle=True,
@@ -654,16 +770,18 @@ def train(args):
             'num_images': metrics.get('num_images', 0),
         }
         
-        output_dir = Path(args.output) / args.model
+        # 出力ディレクトリ（モデル名_入力タイプ）
+        output_dir = Path(args.output) / f"{args.model}_{args.input_type}"
         output_dir.mkdir(parents=True, exist_ok=True)
         
         with open(output_dir / 'test_metrics.json', 'w') as f:
             json.dump(metrics_output, f, indent=2)
         
-        print(f"\n✅ Metrics saved to {output_dir / 'test_metrics.json'}")
+        print(f"\n\u2705 Metrics saved to {output_dir / 'test_metrics.json'}")
         
         # 可視化
-        save_visualization(model, test_loader, device, output_dir, args.model)
+        model_name_for_vis = args.mask2former_model if args.model == 'mask2former' else None
+        save_visualization(model, test_loader, device, output_dir, args.model, model_name_for_vis)
         
         return metrics_output
     
@@ -697,15 +815,15 @@ def train(args):
     else:
         scheduler = None
     
-    # 出力ディレクトリ
-    output_dir = Path(args.output) / args.model
+    # 出力ディレクトリ（モデル名_入力タイプ）
+    output_dir = Path(args.output) / f"{args.model}_{args.input_type}"
     output_dir.mkdir(parents=True, exist_ok=True)
     
     # WandB
     if args.wandb and WANDB_AVAILABLE:
         wandb.init(
             project="manga-instance-seg",
-            name=f"{args.model}-{datetime.now().strftime('%Y%m%d_%H%M%S')}",
+            name=f"{args.model}_{args.input_type}-{datetime.now().strftime('%Y%m%d_%H%M%S')}",
             config=vars(args)
         )
     
@@ -786,7 +904,7 @@ def train(args):
     print(f"  Mean IoU:  {test_metrics['mean_iou_mean']:.4f} ± {test_metrics['mean_iou_std']:.4f}")
     
     # 可視化
-    save_visualization(model, test_loader, device, output_dir, args.model)
+    save_visualization(model, test_loader, device, output_dir, args.model, model_name)
     
     # メトリクス出力形式（ユーザー指定形式）
     metrics_output = {
@@ -866,6 +984,9 @@ def parse_args():
     # データ
     parser.add_argument('--data', type=str, required=True,
                         help='Path to dataset directory')
+    parser.add_argument('--input-type', type=str, default='3ch',
+                        choices=['gray', '3ch'],
+                        help='Input type: gray (grayscale only) or 3ch (Gray+LSD+SDF)')
     parser.add_argument('--img-size', type=int, nargs=2, default=[384, 512],
                         help='Image size (H W)')
     
