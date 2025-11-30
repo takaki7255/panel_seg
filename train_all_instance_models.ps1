@@ -6,22 +6,26 @@
 #   .\train_all_instance_models.ps1
 #
 # 前提条件:
-#   - frame_dataset/1000_instance が存在すること
+#   - frame_dataset/5000_instance が存在すること
 #   - 存在しない場合は以下を実行:
-#     python convert_to_instance_masks.py --input ./frame_dataset/1000_dataset --output ./frame_dataset/1000_instance
+#     python convert_to_instance_masks.py --input ./frame_dataset/5000_preprocessed --output ./frame_dataset/5000_instance --erosion-kernel 7 --copy-auxiliary
 #
 # ============================================================================
 
 $ErrorActionPreference = "Stop"
 
 # Configuration
-$DATASET = "./frame_dataset/1000_instance"
+$DATASET = "./frame_dataset/5000_instance"
 $EPOCHS = 100
 $BATCH_SIZE = 8
 $LR = "1e-4"
 $WEIGHT_DECAY = 0.01
 $OUTPUT_BASE = "./panel_models"
 $USE_WANDB = $true
+
+# Mask2Former specific settings
+$WARMUP_EPOCHS = 10   # 10% of epochs for Transformer warmup
+# Note: Dropout disabled for Mask2Former due to attention mask compatibility issues
 
 # Timestamp for this training run
 $TIMESTAMP = Get-Date -Format "yyyyMMdd_HHmmss"
@@ -33,6 +37,7 @@ Write-Host "Dataset: $DATASET"
 Write-Host "Epochs: $EPOCHS"
 Write-Host "Batch Size: $BATCH_SIZE"
 Write-Host "Learning Rate: $LR"
+Write-Host "Warmup Epochs: $WARMUP_EPOCHS (Mask2Former only)"
 Write-Host "Timestamp: $TIMESTAMP"
 Write-Host "============================================================" -ForegroundColor Cyan
 
@@ -64,6 +69,7 @@ python train_mask2former_gray.py `
     --batch $BATCH_SIZE `
     --lr $LR `
     --weight-decay $WEIGHT_DECAY `
+    --warmup-epochs $WARMUP_EPOCHS `
     --output $OUTPUT_M2F_GRAY `
     $WANDB_FLAG
 
@@ -76,28 +82,29 @@ if ($LASTEXITCODE -ne 0) {
 # ============================================================================
 # 2. Mask2Former 3ch (Gray + LSD + SDF)
 # ============================================================================
-# Write-Host ""
-# Write-Host "============================================================" -ForegroundColor Green
-# Write-Host "[2/4] Training Mask2Former 3ch (Gray + LSD + SDF)" -ForegroundColor Green
-# Write-Host "============================================================" -ForegroundColor Green
+Write-Host ""
+Write-Host "============================================================" -ForegroundColor Green
+Write-Host "[2/4] Training Mask2Former 3ch (Gray + LSD + SDF)" -ForegroundColor Green
+Write-Host "============================================================" -ForegroundColor Green
 
-# $OUTPUT_M2F_3CH = "$OUTPUT_BASE/mask2former_3ch_$TIMESTAMP"
-# Write-Host "Output: $OUTPUT_M2F_3CH"
+$OUTPUT_M2F_3CH = "$OUTPUT_BASE/mask2former_3ch_$TIMESTAMP"
+Write-Host "Output: $OUTPUT_M2F_3CH"
 
-# python train_mask2former.py `
-#     --root $DATASET `
-#     --epochs $EPOCHS `
-#     --batch $BATCH_SIZE `
-#     --lr $LR `
-#     --weight-decay $WEIGHT_DECAY `
-#     --output $OUTPUT_M2F_3CH `
-#     $WANDB_FLAG
+python train_mask2former.py `
+    --root $DATASET `
+    --epochs $EPOCHS `
+    --batch $BATCH_SIZE `
+    --lr $LR `
+    --weight-decay $WEIGHT_DECAY `
+    --warmup-epochs $WARMUP_EPOCHS `
+    --output $OUTPUT_M2F_3CH `
+    $WANDB_FLAG
 
-# if ($LASTEXITCODE -ne 0) {
-#     Write-Host "ERROR: Mask2Former 3ch training failed" -ForegroundColor Red
-# } else {
-#     Write-Host "Mask2Former 3ch training completed!" -ForegroundColor Green
-# }
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "ERROR: Mask2Former 3ch training failed" -ForegroundColor Red
+} else {
+    Write-Host "Mask2Former 3ch training completed!" -ForegroundColor Green
+}
 
 # ============================================================================
 # 3. Mask R-CNN Gray (1ch input)

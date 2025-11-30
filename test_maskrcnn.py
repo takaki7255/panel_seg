@@ -169,12 +169,53 @@ def compute_ap(pred_masks, pred_scores, gt_masks, iou_threshold=0.5):
 # ============================================================================
 # Visualization
 # ============================================================================
+def visualize_instances(image, masks, scores=None, score_threshold=0.5):
+    """Create colored visualization of instances (unified with Mask2Former style)"""
+    if len(masks) == 0:
+        if len(image.shape) == 2:
+            return cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
+        return image.copy()
+    
+    # Random colors for each instance
+    np.random.seed(42)
+    colors = np.random.randint(50, 255, (len(masks) + 1, 3), dtype=np.uint8)
+    colors[0] = [0, 0, 0]
+    
+    # Convert grayscale to BGR if needed
+    if len(image.shape) == 2:
+        vis = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
+    else:
+        vis = image.copy()
+    
+    h, w = vis.shape[:2]
+    overlay = np.zeros((h, w, 3), dtype=np.uint8)
+    
+    for i, mask in enumerate(masks):
+        if scores is not None and scores[i] < score_threshold:
+            continue
+        color_idx = (i % (len(colors) - 1)) + 1
+        overlay[mask > 0] = colors[color_idx]
+    
+    # Blend with same ratio as Mask2Former
+    result = cv2.addWeighted(vis, 0.6, overlay, 0.4, 0)
+    
+    # Draw boundaries (same as Mask2Former)
+    for i, mask in enumerate(masks):
+        if scores is not None and scores[i] < score_threshold:
+            continue
+        mask_uint8 = mask.astype(np.uint8)
+        contours, _ = cv2.findContours(mask_uint8, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        cv2.drawContours(result, contours, -1, (0, 255, 0), 2)
+    
+    return result
+
+
+# Keep old functions for backward compatibility
 def colorize_instances(masks, scores=None, score_threshold=0.5):
-    """Create colorized instance visualization"""
+    """Create colorized instance visualization (deprecated, use visualize_instances)"""
     if len(masks) == 0:
         return None
     
-    # Random colors for each instance
     np.random.seed(42)
     colors = np.random.randint(50, 255, (len(masks), 3))
     
@@ -190,22 +231,8 @@ def colorize_instances(masks, scores=None, score_threshold=0.5):
 
 
 def overlay_instances(image, masks, scores=None, score_threshold=0.5, alpha=0.5):
-    """Overlay instance masks on image"""
-    if len(masks) == 0:
-        return image
-    
-    instance_vis = colorize_instances(masks, scores, score_threshold)
-    if instance_vis is None:
-        return image
-    
-    # Convert grayscale to RGB if needed
-    if len(image.shape) == 2:
-        image = cv2.cvtColor(image, cv2.COLOR_GRAY2RGB)
-    elif image.shape[2] == 1:
-        image = np.repeat(image, 3, axis=2)
-    
-    # Blend
-    overlay = cv2.addWeighted(image, 1 - alpha, instance_vis, alpha, 0)
+    """Overlay instance masks on image (deprecated, use visualize_instances)"""
+    return visualize_instances(image, masks, scores, score_threshold)
     
     return overlay
 
