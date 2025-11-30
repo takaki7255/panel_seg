@@ -21,6 +21,7 @@ from pycocotools import mask as mask_utils
 from pycocotools.coco import COCO
 import cv2
 from scipy.ndimage import distance_transform_edt
+from tqdm import tqdm
 
 # ===== 設定 =====
 ANNOTATION_ROOT = "../manga109/manga_seg_jsons"
@@ -395,7 +396,7 @@ def create_split_dataset(data, image_ids, output_dir, image_root, split_name,
     copied_count = 0
     lsd_stats = []
     
-    for img in new_images:
+    for img in tqdm(new_images, desc=f"  {split_name}", unit="img"):
         src_path = Path(image_root) / img['file_name']
         # ファイル名を連番に変更
         dst_filename = f"{img['id']:05d}.jpg"
@@ -624,11 +625,12 @@ def main():
     else:
         print(f"    LSD/SDF generation: DISABLED")
     
-    for split_name, image_ids in splits.items():
+    for split_name, image_ids in tqdm(splits.items(), desc="Creating splits", unit="split"):
         if not image_ids:
             print(f"  {split_name}: No images (skipped)")
             continue
         
+        print(f"\n  Processing {split_name} ({len(image_ids)} images)...")
         split_data = create_split_dataset(
             data, image_ids, output_dir, IMAGE_ROOT, split_name,
             generate_lsd_sdf=generate_lsd_sdf,

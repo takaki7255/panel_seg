@@ -6,9 +6,9 @@
 #   .\train_instance_seg_all.ps1
 #
 # 前提条件:
-#   - instance_dataset/5000_instance が存在すること
+#   - instance_dataset/5000-instance が存在すること
 #   - 存在しない場合は以下を実行:
-#     python create_instance_dataset.py --name 5000_instance --total 5000
+#     python create_instance_dataset.py --name 5000-instance --total 5000
 #
 # 使用スクリプト: train_instance_seg.py (統合版)
 #
@@ -25,7 +25,7 @@ $ErrorActionPreference = "Stop"
 # ============================================================================
 # Configuration
 # ============================================================================
-$DATASET = "./instance_dataset/5000_instance"
+$DATASET = "./instance_dataset/5000-instance"
 $EPOCHS = 50
 $BATCH_SIZE = 8
 $LR = "1e-4"
@@ -65,7 +65,7 @@ Write-Host "============================================================" -Foreg
 if (-not (Test-Path $DATASET)) {
     Write-Host "ERROR: Dataset not found at $DATASET" -ForegroundColor Red
     Write-Host "Please run first:" -ForegroundColor Yellow
-    Write-Host "  python create_instance_dataset.py --name 5000_instance --total 5000" -ForegroundColor Yellow
+    Write-Host "  python create_instance_dataset.py --name 5000-instance --total 5000" -ForegroundColor Yellow
     exit 1
 }
 
@@ -73,17 +73,23 @@ if (-not (Test-Path $DATASET)) {
 $trainDir = Join-Path $DATASET "train"
 $valDir = Join-Path $DATASET "val"
 
-if (-not (Test-Path (Join-Path $trainDir "annotations.json"))) {
-    Write-Host "ERROR: train/annotations.json not found" -ForegroundColor Red
+# instance_masks ディレクトリの存在確認
+$trainMasksDir = Join-Path $trainDir "instance_masks"
+$valMasksDir = Join-Path $valDir "instance_masks"
+
+if (-not (Test-Path $trainMasksDir)) {
+    Write-Host "ERROR: train/instance_masks not found" -ForegroundColor Red
+    Write-Host "Please regenerate dataset with updated create_instance_dataset.py" -ForegroundColor Yellow
     exit 1
 }
 
-if (-not (Test-Path (Join-Path $valDir "annotations.json"))) {
-    Write-Host "ERROR: val/annotations.json not found" -ForegroundColor Red
+if (-not (Test-Path $valMasksDir)) {
+    Write-Host "ERROR: val/instance_masks not found" -ForegroundColor Red
+    Write-Host "Please regenerate dataset with updated create_instance_dataset.py" -ForegroundColor Yellow
     exit 1
 }
 
-Write-Host "Dataset structure verified!" -ForegroundColor Green
+Write-Host "Dataset structure verified! (PNG instance_masks format)" -ForegroundColor Green
 
 # WandB flag
 $WANDB_FLAG = if ($USE_WANDB) { "--wandb" } else { "" }

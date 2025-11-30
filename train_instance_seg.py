@@ -684,7 +684,8 @@ def train(args):
     
     # testデータセットの存在確認
     test_dir = Path(args.data) / 'test'
-    if test_dir.exists() and (test_dir / 'annotations.json').exists():
+    test_masks_dir = test_dir / 'instance_masks'
+    if test_dir.exists() and test_masks_dir.exists():
         test_dataset = COCOInstanceDataset(args.data, 'test', img_size, augment=False, input_type=input_type)
     else:
         print(f"Warning: test dataset not found at {test_dir}, using val dataset for testing")
