@@ -31,10 +31,10 @@ OUTPUT_ROOT = "./instance_dataset"
 # カテゴリフィルタ（Noneの場合は全カテゴリ、リストで指定可能）
 TARGET_CATEGORIES = ["frame"]  # frame（コマ）のみ抽出
 
-# 分割比率
-TRAIN_RATIO = 0.7
-VAL_RATIO = 0.15
-TEST_RATIO = 0.15
+# 分割比率（train/valのみ、testは別途作成）
+TRAIN_RATIO = 0.8
+VAL_RATIO = 0.2
+TEST_RATIO = 0.0  # テストは別途作成
 
 # ランダムシード
 RANDOM_SEED = 42
@@ -89,6 +89,18 @@ def parse_args():
         type=int,
         default=SDF_MAX_DIST,
         help=f"SDF正規化の最大距離（デフォルト: {SDF_MAX_DIST}）"
+    )
+    parser.add_argument(
+        "--test-name",
+        type=str,
+        default=None,
+        help="テストデータセット名（指定時は別途作成、未指定時はスキップ）"
+    )
+    parser.add_argument(
+        "--test-total",
+        type=int,
+        default=100,
+        help="テストデータセットの画像数（デフォルト: 100）"
     )
     return parser.parse_args()
 
@@ -291,20 +303,20 @@ def filter_by_category(data, target_categories):
     }
 
 
-def split_random(all_image_ids, train_ratio, val_ratio, test_ratio, seed=42, total_images=None):
+def split_random(all_image_ids, train_ratio, val_ratio, seed=42, total_images=None):
     """
-    全画像からランダムにtrain/val/testに分割
+    全画像からランダムにtrain/valに分割
     
     Args:
         all_image_ids: 全画像IDのリスト
         train_ratio: 訓練データの比率
         val_ratio: 検証データの比率
-        test_ratio: テストデータの比率
         seed: ランダムシード
         total_images: 使用する総画像数（Noneの場合は全画像を使用）
     
     Returns:
         dict: 各splitに含まれるimage_idのリスト
+        list: 使用したimage_idのリスト
     """
     random.seed(seed)
     
@@ -319,28 +331,29 @@ def split_random(all_image_ids, train_ratio, val_ratio, test_ratio, seed=42, tot
     
     n_images = len(image_ids)
     n_train = int(n_images * train_ratio)
-    n_val = int(n_images * val_ratio)
     
     splits = {
         'train': image_ids[:n_train],
-        'val': image_ids[n_train:n_train + n_val],
-        'test': image_ids[n_train + n_val:]
+        'val': image_ids[n_train:]
     }
     
     print(f"\nRandom split:")
     print(f"  Train: {len(splits['train'])} images")
     print(f"  Val: {len(splits['val'])} images")
-    print(f"  Test: {len(splits['test'])} images")
-    print(f"  Total: {len(splits['train']) + len(splits['val']) + len(splits['test'])} images")
+    print(f"  Total: {len(splits['train']) + len(splits['val'])} images")
     
-    return splits
+    return splits, image_ids
 
 
 def create_split_dataset(data, image_ids, output_dir, image_root, split_name, 
-                         generate_lsd_sdf=True, min_line_length=10, sdf_max_dist=50):
+                         generate_lsd_sdf=True, min_line_length=10, sdf_max_dist=50,
+                         test_only=False):
     """
     指定されたimage_idsのデータでCOCO形式データセットを作成
     PNG形式のinstance_masksも同時に生成
+    
+    Args:
+        test_only: Trueの場合、split_nameを無視してルート直下に作成
     """
     image_id_set = set(image_ids)
     
@@ -373,8 +386,11 @@ def create_split_dataset(data, image_ids, output_dir, image_root, split_name,
         'categories': data['categories']
     }
     
-    # 出力ディレクトリ作成
-    split_output = Path(output_dir) / split_name
+    # 出力ディレクトリ作成（test_onlyの場合はルート直下）
+    if test_only:
+        split_output = Path(output_dir)
+    else:
+        split_output = Path(output_dir) / split_name
     images_dir = split_output / "images"
     instance_masks_dir = split_output / "instance_masks"  # PNG形式マスク用
     images_dir.mkdir(parents=True, exist_ok=True)
@@ -396,7 +412,8 @@ def create_split_dataset(data, image_ids, output_dir, image_root, split_name,
     copied_count = 0
     lsd_stats = []
     
-    for img in tqdm(new_images, desc=f"  {split_name}", unit="img"):
+    desc_label = split_name if split_name else "test"
+    for img in tqdm(new_images, desc=f"  {desc_label}", unit="img"):
         src_path = Path(image_root) / img['file_name']
         # ファイル名を連番に変更
         dst_filename = f"{img['id']:05d}.jpg"
@@ -599,14 +616,13 @@ def main():
     
     print_statistics(data)
     
-    # 全画像からランダムに分割
+    # 全画像からランダムに分割（train/valのみ）
     print(f"\n[3] Splitting dataset randomly...")
     all_image_ids = [img['id'] for img in data['images']]
-    splits = split_random(
+    splits, used_image_ids = split_random(
         all_image_ids, 
         TRAIN_RATIO, 
         VAL_RATIO, 
-        TEST_RATIO,
         args.seed,
         total_images=args.total
     )
@@ -616,7 +632,7 @@ def main():
     output_dir.mkdir(parents=True, exist_ok=True)
     
     # 各splitのデータセットを作成
-    print(f"\n[4] Creating split datasets...")
+    print(f"\n[4] Creating train/val datasets...")
     generate_lsd_sdf = not args.no_lsd_sdf
     if generate_lsd_sdf:
         print(f"    LSD/SDF generation: ENABLED")
@@ -641,54 +657,110 @@ def main():
         # 可視化サンプル作成
         create_visualization_samples(split_data, output_dir, split_name)
     
+    # テストデータセットを別途作成（--test-name指定時）
+    test_output_dir = None
+    if args.test_name:
+        print(f"\n[5] Creating separate test dataset: {args.test_name}...")
+        
+        # 使用済みでない画像IDから選択
+        used_set = set(used_image_ids)
+        available_for_test = [img_id for img_id in all_image_ids if img_id not in used_set]
+        
+        if len(available_for_test) < args.test_total:
+            print(f"  Warning: Available images ({len(available_for_test)}) < requested ({args.test_total})")
+            test_image_ids = available_for_test
+        else:
+            random.seed(args.seed + 1)  # 異なるシード
+            test_image_ids = random.sample(available_for_test, args.test_total)
+        
+        print(f"  Test images: {len(test_image_ids)} (from unused pool of {len(available_for_test)})")
+        
+        # テストデータセット出力先
+        test_output_dir = Path(args.output) / args.test_name
+        test_output_dir.mkdir(parents=True, exist_ok=True)
+        
+        # テストデータセット作成（test_onlyフラグ付き）
+        test_data = create_split_dataset(
+            data, test_image_ids, test_output_dir, IMAGE_ROOT, "",  # split_name空でルート直下
+            generate_lsd_sdf=generate_lsd_sdf,
+            min_line_length=args.min_line_length,
+            sdf_max_dist=args.sdf_max_dist,
+            test_only=True
+        )
+        
+        # テストデータセットの分割情報を保存
+        test_split_info = {
+            'dataset_name': args.test_name,
+            'is_test_only': True,
+            'test_images': len(test_image_ids),
+            'target_categories': TARGET_CATEGORIES,
+            'source_dataset': args.name,
+            'random_seed': args.seed + 1,
+            'lsd_sdf_enabled': not args.no_lsd_sdf,
+            'min_line_length': args.min_line_length,
+            'sdf_max_dist': args.sdf_max_dist
+        }
+        
+        with open(test_output_dir / 'split_info.json', 'w') as f:
+            json.dump(test_split_info, f, indent=2, ensure_ascii=False)
+        
+        # テストデータセットの可視化
+        create_visualization_samples(test_data, test_output_dir, "")
+    
     # 分割情報を保存
     split_info = {
         'dataset_name': args.name,
         'train_images': len(splits['train']),
         'val_images': len(splits['val']),
-        'test_images': len(splits['test']),
         'target_categories': TARGET_CATEGORIES,
         'total_images': args.total,
         'ratios': {
             'train': TRAIN_RATIO,
-            'val': VAL_RATIO,
-            'test': TEST_RATIO
+            'val': VAL_RATIO
         },
         'random_seed': args.seed,
         'lsd_sdf_enabled': not args.no_lsd_sdf,
         'min_line_length': args.min_line_length,
-        'sdf_max_dist': args.sdf_max_dist
+        'sdf_max_dist': args.sdf_max_dist,
+        'test_dataset': args.test_name if args.test_name else None
     }
     
     with open(output_dir / 'split_info.json', 'w') as f:
         json.dump(split_info, f, indent=2, ensure_ascii=False)
     
-    print(f"\n[5] Dataset creation completed!")
+    print(f"\n[6] Dataset creation completed!")
+    print(f"\n=== Train/Val Dataset ===")
     print(f"Output directory: {output_dir}")
     print(f"\nDirectory structure:")
     print(f"  {output_dir}/")
     print(f"  ├── train/")
     print(f"  │   ├── images/")
-    print(f"  │   ├── annotations.json")
-    if not args.no_lsd_sdf:
-        print(f"  │   ├── lsd/           # LSD線分検出マップ")
-        print(f"  │   ├── sdf/           # SDF距離場マップ")
-    print(f"  │   └── visualization/")
-    print(f"  ├── val/")
-    print(f"  │   ├── images/")
-    print(f"  │   ├── annotations.json")
+    print(f"  │   ├── instance_masks/")
     if not args.no_lsd_sdf:
         print(f"  │   ├── lsd/")
         print(f"  │   ├── sdf/")
     print(f"  │   └── visualization/")
-    print(f"  ├── test/")
+    print(f"  ├── val/")
     print(f"  │   ├── images/")
-    print(f"  │   ├── annotations.json")
+    print(f"  │   ├── instance_masks/")
     if not args.no_lsd_sdf:
         print(f"  │   ├── lsd/")
         print(f"  │   ├── sdf/")
     print(f"  │   └── visualization/")
     print(f"  └── split_info.json")
+    
+    if test_output_dir:
+        print(f"\n=== Test Dataset (separate) ===")
+        print(f"Output directory: {test_output_dir}")
+        print(f"\nDirectory structure:")
+        print(f"  {test_output_dir}/")
+        print(f"  ├── images/")
+        print(f"  ├── instance_masks/")
+        if not args.no_lsd_sdf:
+            print(f"  ├── lsd/")
+            print(f"  ├── sdf/")
+        print(f"  ├── visualization/")
+        print(f"  └── split_info.json")
 
 
 if __name__ == "__main__":

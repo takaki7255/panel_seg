@@ -1,0 +1,21 @@
+{
+  "root": "./instance_dataset/5000-instance",
+  "img_size": [
+    384,
+    512
+  ],
+  "model_name": "facebook/mask2former-swin-tiny-coco-instance",
+  "pretrained": true,
+  "epochs": 100,
+  "batch": 8,
+  "lr": 0.0001,
+  "weight_decay": 0.01,
+  "scheduler": "cosine",
+  "warmup_epochs": 10,
+  "dropout": 0.0,
+  "workers": 4,
+  "output": "./instance_models/mask2former_3ch_20251201_121013",
+  "save_every": 10,
+  "wandb": true,
+  "best_val_loss": 4.775073079109192
+}

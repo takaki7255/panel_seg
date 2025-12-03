@@ -6,21 +6,21 @@
 #   .\train_all_instance_models.ps1
 #
 # 前提条件:
-#   - frame_dataset/5000_instance が存在すること
+#   - instance_dataset/5000-instance が存在すること
 #   - 存在しない場合は以下を実行:
-#     python convert_to_instance_masks.py --input ./frame_dataset/5000_preprocessed --output ./frame_dataset/5000_instance --erosion-kernel 7 --copy-auxiliary
+#     python create_instance_dataset.py --name 5000-instance --total 5000
 #
 # ============================================================================
 
 $ErrorActionPreference = "Stop"
 
 # Configuration
-$DATASET = "./frame_dataset/5000_instance"
+$DATASET = "./instance_dataset/5000-instance"
 $EPOCHS = 100
 $BATCH_SIZE = 8
 $LR = "1e-4"
 $WEIGHT_DECAY = 0.01
-$OUTPUT_BASE = "./panel_models"
+$OUTPUT_BASE = "./instance_models"
 $USE_WANDB = $true
 
 # Mask2Former specific settings
@@ -45,7 +45,7 @@ Write-Host "============================================================" -Foreg
 if (-not (Test-Path $DATASET)) {
     Write-Host "ERROR: Dataset not found at $DATASET" -ForegroundColor Red
     Write-Host "Please run first:" -ForegroundColor Yellow
-    Write-Host "  python convert_to_instance_masks.py --input ./frame_dataset/1000_dataset --output ./frame_dataset/1000_instance" -ForegroundColor Yellow
+    Write-Host "  python create_instance_dataset.py --name 5000-instance --total 5000" -ForegroundColor Yellow
     exit 1
 }
 

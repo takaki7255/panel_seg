@@ -1,0 +1,21 @@
+{
+  "root": "./instance_dataset/5000-instance",
+  "img_size": [
+    384,
+    512
+  ],
+  "input_type": "3ch",
+  "pretrained": true,
+  "trainable_layers": 3,
+  "epochs": 100,
+  "batch": 8,
+  "lr": 0.0001,
+  "weight_decay": 0.01,
+  "optimizer": "adamw",
+  "scheduler": "cosine",
+  "workers": 4,
+  "output": "./instance_models/maskrcnn_3ch_20251201_121013",
+  "save_every": 10,
+  "wandb": true,
+  "best_val_loss": 0.23591466957330703
+}
