@@ -25,7 +25,7 @@ $ErrorActionPreference = "Stop"
 # ============================================================================
 # Configuration
 # ============================================================================
-$DATASET = "./instance_dataset/5000-instance"
+$DATASET = "./instance_dataset/7500-instance"
 $EPOCHS = 50
 $BATCH_SIZE = 8
 $LR = "1e-4"
